@@ -70,6 +70,19 @@ wiki:
     share: true
 ```
 
+## Front Matter properties:
+
+| Property     | Description                                                                                        | Default                        |
+| ------------ | -------------------------------------------------------------------------------------------------- | ------------------------------ |
+| title        | The title of the article. It will be set on confluence                                             | The name of the file           |
+| wiki.share   | The article will be synced to confluence if this parameter set to `true`                           | `false`                        |
+| wiki.toc     | A table of content macro is added to the page                                                      | `true`                         |
+| wiki.warning | It controls a warning text to be displayed that the page should not be modified on confluence. (1) | `true`                         |
+| wiki.layout  | It controls the layout of the page. Currently only `two_column` is the only supported value.       | nothing (single column layout) |
+| authors      | The authors of the article can be listed.                                                          | Needs to be fixed ⚠️         |
+
+
+(1) `wiki.warning` property can control not only the appearance of the message but the message copy itself. Just write the message to be displayed.
 ## Deploying a Post
 
 There are two ways to deploy a post:

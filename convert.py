@@ -1,10 +1,11 @@
-from typing import Any, Tuple
+from typing import Any, Tuple, Union
 from record import Article
 import mistune
 import os
 import textwrap
 import yaml
 import logging
+import html
 from urllib.parse import urlparse
 
 log = logging.getLogger(__name__)
@@ -40,52 +41,92 @@ def parse(path: str) -> Tuple[dict, str]:
     return front_matter or {}, markdown
 
 
-class ConfluenceRenderer(mistune.Renderer):
-    def __init__(self, article: Article, authors=[]):
+class ConfluenceRenderer(mistune.Renderer):#
+    full_with_template = textwrap.dedent('''
+        <ac:layout-section ac:type=\"fixed-width\" ac:breakout-mode=\"default\">
+            <ac:layout-cell>
+                {}
+            </ac:layout-cell>
+        </ac:layout-section>
+    ''')
+
+    two_column_template = textwrap.dedent('''
+        <ac:layout-section ac:type=\"two_left_sidebar\" ac:breakout-mode=\"default\">
+            <ac:layout-cell>
+                {sidebar}
+            </ac:layout-cell><ac:layout-cell>
+                {main_content}
+            </ac:layout-cell>
+        </ac:layout-section>
+    ''')
+
+    page_template = textwrap.dedent('''
+            <ac:layout>
+                {}
+            </ac:layout>
+        ''')
+
+    def __init__(self, article: Article, authors=[], warning: Union[bool, str] = True, render_toc: bool = True, two_column_layout: bool = False):
         self.attachments = []
         if authors is None:
             authors = []
         self.authors = authors
         self.has_toc = False
+        self.render_toc = render_toc
         self.article = article
+        self.warning = warning
+        self.two_column_layout = two_column_layout
         super().__init__()
 
-    def layout(self, content):
-        """Renders the final layout of the content. This includes a two-column
-        layout, with the authors and ToC on the left, and the content on the
-        right.
-
-        The layout looks like this:
-
-        ------------------------------------------
-        |             |                          |
-        |             |                          |
-        | Sidebar     |         Content          |
-        | (30% width) |      (800px width)       |
-        |             |                          |
-        ------------------------------------------
-        
-        Arguments:
-            content {str} -- The HTML of the content
+    def layout(self, content: str) -> str:
+        """Renders the final layout of the content.
         """
-        toc = textwrap.dedent('''
-            <h1>Table of Contents</h1>
-            <p><ac:structured-macro ac:name="toc" ac:schema-version="1">
-                <ac:parameter ac:name="exclude">^(Authors|Table of Contents)$</ac:parameter>
-            </ac:structured-macro></p>''')
+
         # Ignore the TOC if we haven't processed any headers to avoid making a
         # blank one
-        if not self.has_toc:
+        if self.has_toc and self.render_toc:
+            toc = textwrap.dedent('''
+                <h1>Table of Contents</h1>
+                <p><ac:structured-macro ac:name="toc" ac:schema-version="1">
+                    <ac:parameter ac:name="exclude">^(Authors|Table of Contents)$</ac:parameter>
+                </ac:structured-macro></p>
+            ''')
+        else:
             toc = ''
+
         authors = self.render_authors()
-        column = textwrap.dedent('''
-            <ac:structured-macro ac:name="column" ac:schema-version="1">
-                <ac:parameter ac:name="width">{width}</ac:parameter>
-                <ac:rich-text-body>{content}</ac:rich-text-body>
-            </ac:structured-macro>''')
-        sidebar = column.format(width='30%', content=toc + authors)
-        main_content = column.format(width='800px', content=content)
-        return sidebar + main_content
+
+        warning = self._render_warning()
+
+        if self.two_column_layout and (toc or authors):
+            # Render two column
+            if warning:
+                warning = self.full_with_template.format(warning)
+
+            content = self.page_template.format(
+                warning
+                + self.two_column_template.format(
+                    sidebar=toc + authors,
+                    main_content=content
+                )
+            )
+        else:
+            content = warning + toc + authors + content
+
+        return content
+
+    def _render_warning(self):
+        if self.warning:
+            warning_template = "<ac:structured-macro ac:name=\"note\" ac:schema-version=\"1\" ac:macro-id=\"f5f3fbe6-6a62-4eb2-867b-3e1254cef301\"><ac:rich-text-body><p>{copy}</p></ac:rich-text-body></ac:structured-macro>"
+            if self.warning == True:
+                warning_copy = "This page is automatically generated and can be overwritten. Please don't modify it here."
+            else:
+                warning_copy = self.warning
+
+            print('Warning copy {}'.format(warning_copy))
+            return warning_template.format(copy=html.escape(warning_copy))
+        else:
+            return ''
 
     def header(self, text, level, raw=None):
         """Processes a Markdown header.
@@ -108,14 +149,17 @@ class ConfluenceRenderer(mistune.Renderer):
         Returns:
             str -- The HTML to prepend to the post specifying the authors
         """
-        author_template = '''<ac:structured-macro ac:name="profile-picture" ac:schema-version="1">
-                <ac:parameter ac:name="User"><ri:user ri:userkey="{user_key}" /></ac:parameter>
-            </ac:structured-macro>&nbsp;
-            <ac:link><ri:user ri:userkey="{user_key}" /></ac:link>'''
-        author_content = '<br />'.join(
-            author_template.format(user_key=user_key)
-            for user_key in self.authors)
-        return '<h1>Authors</h1><p>{}</p>'.format(author_content)
+        if len(self.authors) > 0:
+            author_template = '''<ac:structured-macro ac:name="profile-picture" ac:schema-version="1">
+                    <ac:parameter ac:name="User"><ri:user ri:userkey="{user_key}" /></ac:parameter>
+                </ac:structured-macro>&nbsp;
+                <ac:link><ri:user ri:userkey="{user_key}" /></ac:link>'''
+            author_content = '<br />'.join(
+                author_template.format(user_key=user_key)
+                for user_key in self.authors)
+            return '<h1>Authors</h1><p>{}</p>'.format(author_content)
+        else:
+            return ''
 
     def block_code(self, code, lang):
         return textwrap.dedent('''\

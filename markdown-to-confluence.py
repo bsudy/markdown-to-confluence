@@ -3,7 +3,7 @@ import argparse
 from dataclasses import dataclass, field
 import logging
 import os
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Union
 from record import Article, ArticleState
 import sys
 import stat
@@ -164,6 +164,18 @@ class ArticleToSync:
     def self_placement(self) -> Tuple[Optional[str], Optional[str]]:
         return self.wiki_config.get('space'), self.wiki_config.get('ancestor_id')
 
+    @property
+    def toc(self) -> bool:
+        return bool(self.wiki_config.get('toc', True))
+
+    @property
+    def warning(self) -> Union[bool, str]:
+        return self.wiki_config.get('warning', True)
+
+    @property
+    def two_column_layout(self) -> bool:
+        return self.wiki_config.get('layout', '') == 'two_column'
+
 class MarkdownToConfluence:
 
     def __init__(self, confluence: Confluence, articles: List[Article], ancestor_id: str, space: str, global_label: Optional[str]) -> None:
@@ -228,7 +240,13 @@ class MarkdownToConfluence:
 
     
     def _convert_to_confluence(self, articleToSync: ArticleToSync):
-        renderer = ConfluenceRenderer(authors=articleToSync.author_keys, article=articleToSync.article)
+        renderer = ConfluenceRenderer(
+            authors=articleToSync.author_keys,
+            article=articleToSync.article,
+            render_toc=articleToSync.toc,
+            two_column_layout=articleToSync.two_column_layout,
+            warning=articleToSync.warning,
+        )
         content_html = mistune.markdown(articleToSync.markdown, renderer=renderer)
         page_html = renderer.layout(content_html)
 
